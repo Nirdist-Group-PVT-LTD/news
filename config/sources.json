@@ -1,0 +1,15 @@
+
+[
+  {
+    "name": "BBC Nepali",
+    "feed": "https://feeds.bbci.co.uk/nepali/rss.xml",
+    "lang": "ne",
+    "homepage": "https://www.bbc.com/nepali"
+  },
+  {
+    "name": "Reuters Top News",
+    "feed": "https://www.reuters.com/rssFeed/topNews",
+    "lang": "en",
+    "homepage": "https://www.reuters.com/"
+  }
+]

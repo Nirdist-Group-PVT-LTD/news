@@ -1,0 +1,36 @@
+
+<!doctype html>
+<html lang="ne">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>{{ title }}</title>
+  <meta name="description" content="{{ description }}">
+  <meta http-equiv="refresh" content="900"> <!-- auto-refresh every 15 min -->
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="alternate" type="application/json" href="/feed.json">
+  <link rel="alternate" type="application/rss+xml" href="/feed.xml">
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    .line-clamp-2 { display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; }
+  </style>
+</head>
+<body class="bg-gray-50 text-gray-900">
+  <header class="sticky top-0 z-10 bg-white shadow">
+    <div class="max-w-5xl mx-auto px-4 py-3 flex items-center justify-between">
+      <a href="/" class="font-semibold text-xl">Nirdist News</a>
+      <nav class="text-sm text-gray-600">
+        Updated: <span id="updatedAt">{{ updated_at }}</span>
+      </nav>
+    </div>
+  </header>
+
+  <main class="max-w-5xl mx-auto px-4 py-6">
+    {% block content %}{% endblock %}
+  </main>
+
+  <footer class="max-w-5xl mx-auto px-4 py-10 text-xs text-gray-500">
+    Headlines & excerpts © respective publishers. We link to sources.
+  </footer>
+</body>
+</html>
