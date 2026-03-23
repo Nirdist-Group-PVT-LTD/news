@@ -1,202 +1,217 @@
 
-import json, os, re, time, hashlib, html
-from datetime import datetime, timezone
-from urllib.parse import urlparse
-import feedparser, requests
-from bs4 import BeautifulSoup
-from dateutil import parser as dtp
-from jinja2 import Environment, FileSystemLoader, select_autoescape
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
 
-ROOT = os.path.dirname(os.path.dirname(__file__))
-CONFIG = os.path.join(ROOT, "config", "sources.json")
-DATA = os.path.join(ROOT, "data", "items.json")
-# DIST = os.path.join(ROOT, "dist")
-DIST = os.path.join(ROOT, "docs")
+"""
+Scraper entrypoint with resilient cache handling and atomic writes.
 
-os.makedirs(os.path.join(ROOT, "data"), exist_ok=True)
-os.makedirs(DIST, exist_ok=True)
+- load_cache(): tolerant to missing/empty/invalid JSON
+- save_cache(): atomic write to prevent truncated cache in CI
+- main(): integrates safe cache usage and basic sanity checks
 
-def load_sources():
-    with open(CONFIG, "r", encoding="utf-8") as f:
-        return json.load(f)
+Replace `scrape()` with your actual scraping logic.
+"""
 
-def load_cache():
-    if os.path.exists(DATA):
-        with open(DATA, "r", encoding="utf-8") as f:
-            return json.load(f)
-    return []
+from __future__ import annotations
 
-def save_cache(items):
-    with open(DATA, "w", encoding="utf-8") as f:
-        json.dump(items, f, ensure_ascii=False, indent=2)
+import json
+import os
+import sys
+import tempfile
+import time
+from typing import Any, Dict, List
 
-def canonical_url(link:str)->str:
-    # strip tracking params (basic)
-    return re.sub(r"([?&])(utm_[^=]+|fbclid|gclid)=[^&]+", "", link)
+# ------------------------------------------------------------------------------
+# Configuration
+# ------------------------------------------------------------------------------
 
-def pick_image_from_entry(entry):
-    # RSS media tags
-    for key in ("media_content", "media_thumbnail", "enclosures"):
-        if key in entry and entry[key]:
-            try:
-                if isinstance(entry[key], list):
-                    return entry[key][0].get("url")
-                elif isinstance(entry[key], dict):
-                    return entry[key].get("url")
-            except Exception:
-                pass
-    return None
+# You can override via env, e.g. in GitHub Actions:
+#   NEWS_CACHE_PATH="data/cache-${{ github.run_id }}.json"
+CACHE_PATH = os.environ.get("NEWS_CACHE_PATH", "data/cache.json")
 
-def fetch_og_image(url, timeout=8):
+# Optional: fail the build if scrape produced 0 articles (set to '1' to enforce)
+FAIL_ON_EMPTY = os.environ.get("FAIL_ON_EMPTY", "0") == "1"
+
+
+# ------------------------------------------------------------------------------
+# Utilities: logging
+# ------------------------------------------------------------------------------
+
+def log_info(msg: str) -> None:
+    print(f"[info] {msg}", flush=True)
+
+
+def log_warn(msg: str) -> None:
+    print(f"[warn] {msg}", flush=True)
+
+
+def log_error(msg: str) -> None:
+    print(f"[error] {msg}", flush=True)
+
+
+# ------------------------------------------------------------------------------
+# Cache helpers
+# ------------------------------------------------------------------------------
+
+def load_cache(default: Any = None, path: str = CACHE_PATH) -> Any:
+    """
+    Load JSON cache safely.
+    Returns `default` (or `{}`) if file is missing, empty, or invalid JSON.
+    """
+    if default is None:
+        default = {}
+
+    if not os.path.exists(path):
+        log_info(f"Cache not found at {path}; using default.")
+        return default
+
     try:
-        resp = requests.get(url, timeout=timeout, headers={"User-Agent":"Mozilla/5.0 (compatible; NirdistNewsBot/1.0)"})
-        if resp.status_code != 200 or "text/html" not in resp.headers.get("content-type",""):
-            return None
-        soup = BeautifulSoup(resp.text, "html.parser")
-        og = soup.find("meta", property="og:image") or soup.find("meta", attrs={"name":"twitter:image"})
-        if og and og.get("content"):
-            return og["content"]
+        size = os.path.getsize(path)
+        if size == 0:
+            log_warn(f"Cache at {path} is empty (0 bytes); using default.")
+            return default
+
+        with open(path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+            return data
+    except json.JSONDecodeError:
+        log_warn(f"Invalid JSON in {path}; using default cache.")
+        return default
+    except OSError as e:
+        log_warn(f"Could not read {path}: {e}; using default cache.")
+        return default
+
+
+def save_cache(data: Any, path: str = CACHE_PATH) -> None:
+    """
+    Atomically write JSON to disk to avoid truncated/partial files in CI.
+    """
+    directory = os.path.dirname(path) or "."
+    os.makedirs(directory, exist_ok=True)
+
+    fd, tmp_path = tempfile.mkstemp(prefix=".cache-", dir=directory)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as tmp:
+            json.dump(data, tmp, ensure_ascii=False, indent=2)
+            tmp.flush()
+            os.fsync(tmp.fileno())
+        os.replace(tmp_path, path)  # atomic on POSIX & modern Windows
+        log_info(f"Wrote cache atomically to {path} ({len(json.dumps(data))} bytes).")
+    except Exception as e:
+        log_error(f"Failed to write cache to {path}: {e}")
+        # Best effort cleanup; don't raise further to avoid masking the real issue
+        try:
+            if os.path.exists(tmp_path):
+                os.remove(tmp_path)
+        except OSError:
+            pass
+        raise
+    finally:
+        # If os.replace succeeded, tmp_path won't exist; ignore errors.
+        try:
+            if os.path.exists(tmp_path):
+                os.remove(tmp_path)
+        except OSError:
+            pass
+
+
+# ------------------------------------------------------------------------------
+# Example scraper (replace with your real logic)
+# ------------------------------------------------------------------------------
+
+def scrape() -> Dict[str, Any]:
+    """
+    Example scraper that returns a dict with an 'articles' list.
+    Replace with your real scraping logic.
+    """
+    # Simulate network work
+    time.sleep(0.3)
+
+    # Return shape that your app expects; here we use a simple example
+    result = {
+        "generated_at": int(time.time()),
+        "source": "example",
+        "articles": [
+            {
+                "id": "example-1",
+                "title": "Hello World",
+                "url": "https://example.com/hello",
+                "published_at": "2026-03-23T12:00:00Z",
+            }
+        ],
+    }
+    return result
+
+
+def validate_payload(payload: Any) -> bool:
+    """
+    Quick sanity checks: payload must be a dict with a list under 'articles'.
+    Customize to your schema.
+    """
+    if not isinstance(payload, dict):
+        log_warn("Payload is not a dict.")
+        return False
+    if "articles" not in payload:
+        log_warn("Payload missing 'articles' key.")
+        return False
+    if not isinstance(payload["articles"], list):
+        log_warn("'articles' is not a list.")
+        return False
+    return True
+
+
+# ------------------------------------------------------------------------------
+# Main
+# ------------------------------------------------------------------------------
+
+def main() -> int:
+    log_info("Starting scraper.")
+
+    # Load existing cache safely (returns {} by default)
+    existing = load_cache({})
+    if not isinstance(existing, dict):
+        log_warn("Existing cache is not a dict; resetting to {}.")
+        existing = {}
+
+    # Perform scraping
+    try:
+        new_data = scrape()
+    except Exception as e:
+        log_error(f"Scrape failed: {e}")
+        # Keep existing cache; fail the process so CI signals error
+        return 1
+
+    # Validate new data
+    if not validate_payload(new_data):
+        log_warn("New data failed validation; keeping existing cache.")
+        if FAIL_ON_EMPTY:
+            log_error("FAIL_ON_EMPTY is set; failing the build.")
+            return 1
+        return 0
+
+    # Optionally prevent saving if empty results
+    if len(new_data.get("articles", [])) == 0:
+        log_warn("Scrape produced 0 articles.")
+        if FAIL_ON_EMPTY:
+            log_error("FAIL_ON_EMPTY is set; failing the build.")
+            return 1
+        else:
+            log_warn("Keeping existing cache (not overwriting with empty).")
+            return 0
+
+    # Merge strategy (optional): you can customize merging behavior
+    merged = new_data  # simple replacement; or implement dedup/merge with `existing`
+
+    # Persist atomically
+    try:
+        save_cache(merged)
     except Exception:
-        return None
-    return None
+        # save_cache already logged; ensure CI gets a failure code
+        return 1
 
-def to_iso(dt):
-    if isinstance(dt, datetime):
-        return dt.astimezone(timezone.utc).isoformat()
-    return None
+    log_info("Scraper completed successfully.")
+    return 0
 
-def human_time(dt):
-    # show relative-ish time or date
-    now = datetime.now(timezone.utc)
-    delta = (now - dt).total_seconds()
-    if delta < 3600:
-        m = int(delta/60)
-        return f"{m} min ago" if m >= 1 else "just now"
-    if delta < 86400:
-        h = int(delta/3600)
-        return f"{h} hr ago"
-    return dt.astimezone().strftime("%Y-%m-%d %H:%M")
-
-def normalize_entry(entry, source_name):
-    title = html.unescape(entry.get("title", "")).strip()
-    link = canonical_url(entry.get("link","").strip())
-    if not (title and link):
-        return None
-
-    # Published
-    published_dt = None
-    for key in ("published", "updated"):
-        if entry.get(key):
-            try:
-                published_dt = dtp.parse(entry[key])
-                break
-            except Exception:
-                pass
-    if not published_dt and entry.get("published_parsed"):
-        published_dt = datetime(*entry.published_parsed[:6], tzinfo=timezone.utc)
-    if not published_dt:
-        published_dt = datetime.now(timezone.utc)
-
-    # Summary
-    summary = BeautifulSoup(entry.get("summary",""), "html.parser").get_text().strip()
-    summary = re.sub(r"\s+", " ", summary)[:300]
-
-    # Image
-    image = pick_image_from_entry(entry) or fetch_og_image(link)
-
-    return {
-        "id": hashlib.sha1(link.encode("utf-8")).hexdigest(),
-        "title": title,
-        "link": link,
-        "source": source_name,
-        "summary": summary,
-        "image": image,
-        "published": to_iso(published_dt),
-        "published_human": human_time(published_dt),
-    }
-
-def fetch_all(sources):
-    items = []
-    for s in sources:
-        feed_url = s["feed"]
-        src_name = s["name"]
-        fp = feedparser.parse(feed_url)
-        for e in fp.entries[:30]:
-            itm = normalize_entry(e, src_name)
-            if itm:
-                items.append(itm)
-        # be polite
-        time.sleep(0.5)
-    return items
-
-def merge_dedupe(existing, new_items, max_items=500):
-    by_id = {i["id"]: i for i in existing}
-    for i in new_items:
-        by_id[i["id"]] = i
-    all_items = list(by_id.values())
-    all_items.sort(key=lambda x: x.get("published") or "", reverse=True)
-    return all_items[:max_items]
-
-def render_site(items):
-    # Jinja env
-    env = Environment(
-        loader=FileSystemLoader(os.path.join(ROOT, "templates")),
-        autoescape=select_autoescape()
-    )
-    ctx = {
-        "title": "Nirdist News — Latest Updates",
-        "description": "Automated, aggregated headlines with source links.",
-        "updated_at": datetime.now().astimezone().strftime("%Y-%m-%d %H:%M"),
-        "items": items
-    }
-    # index.html
-    html_out = env.get_template("index.html.j2").render(**ctx)
-    with open(os.path.join(DIST, "index.html"), "w", encoding="utf-8") as f:
-        f.write(html_out)
-
-    # JSON feed
-    json_feed = {
-        "version": "https://jsonfeed.org/version/1.1",
-        "title": "Nirdist News",
-        "home_page_url": "https://news.nirdist.com.np/",
-        "feed_url": "https://news.nirdist.com.np/feed.json",
-        "items": [{
-            "id": it["id"], "url": it["link"], "title": it["title"],
-            "content_text": it.get("summary",""),
-            "date_published": it.get("published"),
-            "external_url": it["link"]
-        } for it in items]
-    }
-    with open(os.path.join(DIST, "feed.json"), "w", encoding="utf-8") as f:
-        json.dump(json_feed, f, ensure_ascii=False, indent=2)
-
-    # robots + favicon + simple sitemap
-    with open(os.path.join(DIST, "robots.txt"), "w", encoding="utf-8") as f:
-        f.write(open(os.path.join(ROOT, "static", "robots.txt"), "r", encoding="utf-8").read())
-    with open(os.path.join(DIST, "favicon.svg"), "w", encoding="utf-8") as f:
-        f.write("""<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><rect width="64" height="64" rx="12" fill="#0ea5e9"/><text x="32" y="40" font-size="28" text-anchor="middle" fill="white" font-family="Arial, Helvetica, sans-serif">N</text></svg>""")
-
-    with open(os.path.join(DIST, "sitemap.xml"), "w", encoding="utf-8") as f:
-        f.write(f"""<?xml version="1.0" encoding="UTF-8"?>
-<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
-  <url><loc>https://news.nirdist.com.np/</loc><changefreq>hourly</changefreq></url>
-</urlset>""")
-
-    # CNAME for custom domain (Pages reads this from the artifact)
-    with open(os.path.join(DIST, "CNAME"), "w", encoding="utf-8") as f:
-        f.write("news.nirdist.com.np")
-
-    # prevent Jekyll processing
-    with open(os.path.join(DIST, ".nojekyll"), "w", encoding="utf-8") as f:
-        f.write("")
-
-def main():
-    sources = load_sources()
-    existing = load_cache()
-    fetched = fetch_all(sources)
-    merged = merge_dedupe(existing, fetched)
-    save_cache(merged)
-    render_site(merged)
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())
