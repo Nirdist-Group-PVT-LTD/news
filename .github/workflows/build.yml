@@ -32,11 +32,7 @@ jobs:
           source: ./docs
           destination: ./_site
 
-      ✅ # Upload ONLY the built HTML
-      - name: Upload Pages artifact
-        uses: actions/upload-pages-artifact@v3
-        with:
-          path: ./_site
+
 
   deploy:
     needs: build
