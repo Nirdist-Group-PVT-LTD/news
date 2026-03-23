@@ -1,46 +1,42 @@
 
-name: Pages build and deployment
+# .github/workflows/build.yml
+name: Build News Site
 
 on:
-  push:
-    branches: [ main ]
-  workflow_dispatch:
+  workflow_dispatch:         # run manually
+  schedule:
+    - cron: "*/30 * * * *"   # or a cadence you prefer
 
 permissions:
-  contents: read
-  pages: write
-  id-token: write
-
-concurrency:
-  group: "pages"
-  cancel-in-progress: true
+  contents: write            # to commit data/cache.json
 
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Configure Pages
-        uses: actions/configure-pages@v5
-
-      ✅ # THIS STEP IS WHAT YOU ARE MISSING
-      - name: Build site with Jekyll
-        uses: actions/jekyll-build-pages@v1
+      - name: Set up Python
+        uses: actions/setup-python@v5
         with:
-          source: ./docs
-          destination: ./_site
+          python-version: "3.11"
 
+      - name: Run scraper
+        run: |
+          mkdir -p data
+          python scripts/scraper.py
 
+      - name: Commit scraped data (if changed)
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data
+          git diff --staged --quiet && echo "No changes" || git commit -m "Auto-update news [skip ci]"
+          git rev-parse --verify HEAD && git push || true
 
-  deploy:
-    needs: build
-    runs-on: ubuntu-latest
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
-    steps:
-      - name: Deploy to GitHub Pages
-        id: deployment
-        uses: actions/deploy-pages@v4
+      # ✅ If you want an artifact for debugging, use the REGULAR artifact action
+      - name: Upload scraper output (regular artifact)
+        uses: actions/upload-artifact@v4
+        with:
+          name: scraper-data
+          path: data/cache.json
