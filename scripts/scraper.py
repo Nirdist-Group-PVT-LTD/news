@@ -10,7 +10,8 @@ from jinja2 import Environment, FileSystemLoader, select_autoescape
 ROOT = os.path.dirname(os.path.dirname(__file__))
 CONFIG = os.path.join(ROOT, "config", "sources.json")
 DATA = os.path.join(ROOT, "data", "items.json")
-DIST = os.path.join(ROOT, "dist")
+# DIST = os.path.join(ROOT, "dist")
+DIST = os.path.join(ROOT, "docs")
 
 os.makedirs(os.path.join(ROOT, "data"), exist_ok=True)
 os.makedirs(DIST, exist_ok=True)
