@@ -1,4 +1,5 @@
 
+# .github/workflows/pages.yml
 name: Pages build and deployment
 
 on:
@@ -25,13 +26,21 @@ jobs:
       - name: Configure Pages
         uses: actions/configure-pages@v5
 
+      # 👉 If you use Jekyll in /docs
       - name: Build with Jekyll
         uses: actions/jekyll-build-pages@v1
         with:
           source: ./docs
           destination: ./_site
 
-      ✅ # ONLY ONE upload — THIS IS CRITICAL
+      # 👉 If you DON'T use Jekyll, remove the block above and instead:
+      # - name: Prepare static site
+      #   run: |
+      #     mkdir -p _site
+      #     cp -r docs/* _site/  # or your real build output
+      #     # cp -r data _site/data
+
+      # ✅ CRITICAL: Only one upload-pages-artifact in the entire run
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3
         with:
@@ -44,7 +53,7 @@ jobs:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
-      ✅ # ONLY deploy — NO uploads here
+      # ✅ CRITICAL: Deploy only. Do NOT upload again here.
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4
